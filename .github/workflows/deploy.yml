@@ -1,0 +1,118 @@
+name: Deploy Health Care App
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'dev' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-deploy
+          aws-region: ${{ secrets.DEFAULT_AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Bootstrap Terraform backend
+        run: |
+          chmod +x scripts/bootstrap.sh
+          ./scripts/bootstrap.sh
+        env:
+          DEFAULT_AWS_REGION: ${{ secrets.DEFAULT_AWS_REGION }}
+
+      - name: Terraform Init & First Apply
+        working-directory: ./terraform
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
+          AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          AWS_REGION="${{ secrets.DEFAULT_AWS_REGION }}"
+
+          terraform init -input=false \
+            -backend-config="bucket=health-care-terraform-state-${AWS_ACCOUNT_ID}" \
+            -backend-config="key=${ENVIRONMENT}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=health-care-terraform-locks" \
+            -backend-config="encrypt=true"
+
+          if ! terraform workspace list | grep -q "$ENVIRONMENT"; then
+            terraform workspace new "$ENVIRONMENT"
+          else
+            terraform workspace select "$ENVIRONMENT"
+          fi
+
+          terraform apply \
+            -var="project_name=health-care" \
+            -var="environment=$ENVIRONMENT" \
+            -var="image_tag=${{ github.sha }}" \
+            -var="clerk_publishable_key=${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}" \
+            -var="clerk_secret_key=${{ secrets.CLERK_SECRET_KEY }}" \
+            -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
+            -auto-approve
+
+      - name: Build and push Docker image
+        run: |
+          ECR_URL=$(cd terraform && terraform output -raw ecr_repository_url)
+          IMAGE_TAG="${{ github.sha }}"
+
+          docker build \
+            --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }} \
+            -t "${ECR_URL}:${IMAGE_TAG}" \
+            -t "${ECR_URL}:latest" \
+            .
+
+          docker push "${ECR_URL}:${IMAGE_TAG}"
+          docker push "${ECR_URL}:latest"
+
+      - name: Terraform Apply - Update App Runner
+        working-directory: ./terraform
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
+
+          terraform apply \
+            -var="project_name=health-care" \
+            -var="environment=$ENVIRONMENT" \
+            -var="image_tag=${{ github.sha }}" \
+            -var="clerk_publishable_key=${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}" \
+            -var="clerk_secret_key=${{ secrets.CLERK_SECRET_KEY }}" \
+            -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
+            -auto-approve
+
+      - name: Deployment Summary
+        working-directory: ./terraform
+        run: |
+          APP_URL=$(terraform output -raw app_runner_url)
+          echo "Deployment Complete!"
+          echo "App URL: $APP_URL"
+          echo "Image: ${{ github.sha }}"

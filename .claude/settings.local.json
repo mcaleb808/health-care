@@ -5,7 +5,14 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Latest:', d.get\\('dist-tags',{}\\).get\\('latest','?'\\)\\)\")",
       "Bash(ls -la /Users/caleb/projects/prod-repos/saas/.env*)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k\\) for k in sorted\\(d.keys\\(\\)\\)[:20]]\")",
-      "Bash(npx create-next-app@latest:*)"
+      "Bash(npx create-next-app@latest:*)",
+      "Bash(npm install:*)",
+      "Bash(npx next:*)",
+      "Bash(ls /Users/caleb/Desktop/Screenshot*2026-04-09*12.20*)",
+      "Bash(ls /Users/caleb/Downloads/Screenshot*2026-04-09*12.20*)",
+      "Read(//private/tmp/**)",
+      "Bash(ls:*)",
+      "Bash(chmod +x:*)"
     ]
   }
 }
