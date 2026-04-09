@@ -52,43 +52,48 @@ jobs:
         env:
           DEFAULT_AWS_REGION: ${{ secrets.DEFAULT_AWS_REGION }}
 
+      - name: Write secrets file
+        shell: bash
+        run: |
+          cat > terraform/secrets.auto.tfvars <<'TFVARSEOF'
+          clerk_publishable_key = "${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}"
+          clerk_secret_key      = "${{ secrets.CLERK_SECRET_KEY }}"
+          openai_api_key        = "${{ secrets.OPENAI_API_KEY }}"
+          TFVARSEOF
+
       - name: Terraform Init & Create ECR
         working-directory: ./terraform
-        env:
-          TF_VAR_project_name: health-care
-          TF_VAR_environment: ${{ github.event.inputs.environment || 'dev' }}
-          TF_VAR_image_tag: ${{ github.sha }}
-          TF_VAR_clerk_publishable_key: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          TF_VAR_clerk_secret_key: ${{ secrets.CLERK_SECRET_KEY }}
-          TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
           AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
           AWS_REGION="${{ secrets.DEFAULT_AWS_REGION }}"
 
           terraform init -input=false \
             -backend-config="bucket=health-care-terraform-state-${AWS_ACCOUNT_ID}" \
-            -backend-config="key=${TF_VAR_environment}/terraform.tfstate" \
+            -backend-config="key=${ENVIRONMENT}/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}" \
             -backend-config="dynamodb_table=health-care-terraform-locks" \
             -backend-config="encrypt=true"
 
-          if ! terraform workspace list | grep -q "${TF_VAR_environment}"; then
-            terraform workspace new "${TF_VAR_environment}"
+          if ! terraform workspace list | grep -q "$ENVIRONMENT"; then
+            terraform workspace new "$ENVIRONMENT"
           else
-            terraform workspace select "${TF_VAR_environment}"
+            terraform workspace select "$ENVIRONMENT"
           fi
 
           terraform apply \
             -target=aws_ecr_repository.app \
             -target=aws_ecr_lifecycle_policy.app \
+            -var="project_name=health-care" \
+            -var="environment=$ENVIRONMENT" \
+            -var="image_tag=${{ github.sha }}" \
             -auto-approve
 
       - name: Build and push Docker image
-        env:
-          CLERK_PK: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
         run: |
           ECR_URL=$(cd terraform && terraform output -raw ecr_repository_url)
           IMAGE_TAG="${{ github.sha }}"
+          CLERK_PK=$(grep clerk_publishable_key terraform/secrets.auto.tfvars | sed 's/.*= "\(.*\)"/\1/')
 
           docker build \
             --build-arg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${CLERK_PK}" \
@@ -101,15 +106,18 @@ jobs:
 
       - name: Terraform Apply - Full Infrastructure
         working-directory: ./terraform
-        env:
-          TF_VAR_project_name: health-care
-          TF_VAR_environment: ${{ github.event.inputs.environment || 'dev' }}
-          TF_VAR_image_tag: ${{ github.sha }}
-          TF_VAR_clerk_publishable_key: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          TF_VAR_clerk_secret_key: ${{ secrets.CLERK_SECRET_KEY }}
-          TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          terraform apply -auto-approve
+          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
+
+          terraform apply \
+            -var="project_name=health-care" \
+            -var="environment=$ENVIRONMENT" \
+            -var="image_tag=${{ github.sha }}" \
+            -auto-approve
+
+      - name: Cleanup secrets file
+        if: always()
+        run: rm -f terraform/secrets.auto.tfvars
 
       - name: Deployment Summary
         working-directory: ./terraform
