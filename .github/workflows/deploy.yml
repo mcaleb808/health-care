@@ -52,7 +52,7 @@ jobs:
         env:
           DEFAULT_AWS_REGION: ${{ secrets.DEFAULT_AWS_REGION }}
 
-      - name: Terraform Init & First Apply
+      - name: Terraform Init & Create ECR
         working-directory: ./terraform
         run: |
           ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
@@ -73,6 +73,8 @@ jobs:
           fi
 
           terraform apply \
+            -target=aws_ecr_repository.app \
+            -target=aws_ecr_lifecycle_policy.app \
             -var="project_name=health-care" \
             -var="environment=$ENVIRONMENT" \
             -var="image_tag=${{ github.sha }}" \
@@ -95,7 +97,7 @@ jobs:
           docker push "${ECR_URL}:${IMAGE_TAG}"
           docker push "${ECR_URL}:latest"
 
-      - name: Terraform Apply - Update App Runner
+      - name: Terraform Apply - Full Infrastructure
         working-directory: ./terraform
         run: |
           ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"

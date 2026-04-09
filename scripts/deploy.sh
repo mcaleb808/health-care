@@ -34,6 +34,8 @@ else
 fi
 
 terraform apply \
+  -target=aws_ecr_repository.app \
+  -target=aws_ecr_lifecycle_policy.app \
   -var="project_name=$PROJECT_NAME" \
   -var="environment=$ENVIRONMENT" \
   -var="image_tag=$IMAGE_TAG" \
