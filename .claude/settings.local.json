@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Latest:', d.get\\('dist-tags',{}\\).get\\('latest','?'\\)\\)\")",
+      "Bash(ls -la /Users/caleb/projects/prod-repos/saas/.env*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k\\) for k in sorted\\(d.keys\\(\\)\\)[:20]]\")",
+      "Bash(npx create-next-app@latest:*)"
+    ]
+  }
+}
