@@ -46,3 +46,8 @@ next-env.d.ts
 .terraform/
 .terraform.lock.hcl
 terraform.tfstate.d/
+
+# claude
+.claude/
+CLAUDE.md
+AGENTS.md
